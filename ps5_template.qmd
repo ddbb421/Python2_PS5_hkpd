@@ -26,10 +26,10 @@ output:
 ## Submission Steps (10 pts)
 1. This problem set is a paired problem set.
 2. Play paper, scissors, rock to determine who goes first. Call that person *Partner 1*.
-    - Partner 1 (name and cnet ID):
+    - Partner 1 (name and cnet ID): Regina Hou (houk)
     - Partner 2 (name and cnet ID):
 3. Partner 1 will accept the `ps5` and then share the link it creates with their partner. You can only share it with one partner so you will not be able to change it after your partner has accepted. 
-4. "This submission is our work alone and complies with the 30538 integrity policy." Add your initials to indicate your agreement: \*\*\_\_\*\* \*\*\_\_\*\*
+4. "This submission is our work alone and complies with the 30538 integrity policy." Add your initials to indicate your agreement: \*\*\R\H\*\* \*\*\_\_\*\*
 5. "I have uploaded the names of anyone else other than my partner and I worked with on the problem set **[here](https://docs.google.com/forms/d/185usrCREQaUbvAXpWhChkjghdGgmAZXA3lPWpXLLsts/edit)**"  (1 point)
 6. Late coins used this pset: \*\*\_\_\*\* Late coins left after submission: \*\*\_\_\*\*
 7. Knit your `ps5.qmd` to an PDF file to make `ps5.pdf`, 
@@ -56,14 +56,133 @@ alt.renderers.enable("png")
 ### 1. Scraping (PARTNER 1)
 
 ```{python}
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+
+url = 'https://oig.hhs.gov/fraud/enforcement/'
+
+
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+
+titles = []
+dates = []
+categories = []
+links = []
+
+
+for card in soup.find_all('h2', class_='usa-card__heading'):
+    
+    title_tag = card.find('a')
+    if title_tag:
+        title = title_tag.get_text(strip=True)
+        link = url + title_tag['href']  
+        titles.append(title)
+        links.append(link)
+    else:
+        titles.append(None)
+        links.append(None)
+
+    
+    date_tag = card.find_next('span', class_='text-base-dark padding-right-105')
+    if date_tag:
+        date = date_tag.get_text(strip=True)
+        dates.append(date)
+    else:
+        dates.append(None)
+    
+   
+    category_tag = card.find_next('ul', class_='display-inline add-list-reset')
+    if category_tag:
+        category = category_tag.find('li').get_text(strip=True)
+        categories.append(category)
+    else:
+        categories.append(None)
+
+data = {
+    'Title': titles,
+    'Date': dates,
+    'Category': categories,
+    'Link': links
+}
+df = pd.DataFrame(data)
+
+print(df.head())
 
 ```
 
-  
 ### 2. Crawling (PARTNER 1)
 
 ```{python}
+url = 'https://oig.hhs.gov/fraud/enforcement/'
 
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+titles = []
+dates = []
+categories = []
+links = []
+agencies = []
+
+for card in soup.find_all('h2', class_='usa-card__heading'):
+  
+    title_tag = card.find('a')
+    if title_tag:
+        title = title_tag.get_text(strip=True)
+        link = url + title_tag['href']  
+        titles.append(title)
+        links.append(link)
+    else:
+        titles.append(None)
+        links.append(None)
+
+    date_tag = card.find_next('span', class_='text-base-dark padding-right-105')
+    if date_tag:
+        date = date_tag.get_text(strip=True)
+        dates.append(date)
+    else:
+        dates.append(None)
+    
+    category_tag = card.find_next('ul', class_='display-inline add-list-reset')
+    if category_tag:
+        category = category_tag.find('li').get_text(strip=True)
+        categories.append(category)
+    else:
+        categories.append(None)
+    
+    if link:
+        action_response = requests.get(link)
+        action_soup = BeautifulSoup(action_response.text, 'html.parser')
+        
+        content_div = action_soup.find('div', class_='content')
+        if content_div:
+            p_tags = content_div.find_all('p')
+            if len(p_tags) >= 3:
+                agency = p_tags[2].get_text(strip=True)  
+                agencies.append(agency)
+            else:
+                agencies.append(None)
+        else:
+            agencies.append(None)
+        
+        time.sleep(1)
+    else:
+        agencies.append(None)
+
+data = {
+    'Title': titles,
+    'Date': dates,
+    'Category': categories,
+    'Link': links,
+    'Agency': agencies
+}
+df = pd.DataFrame(data)
+
+df.head()
 ```
 
 ## Step 2: Making the scraper dynamic
