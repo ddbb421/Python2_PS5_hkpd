@@ -27,9 +27,9 @@ output:
 1. This problem set is a paired problem set.
 2. Play paper, scissors, rock to determine who goes first. Call that person *Partner 1*.
     - Partner 1 (name and cnet ID): Regina Hou (houk)
-    - Partner 2 (name and cnet ID):
+    - Partner 2 (name and cnet ID): Gabrielle Pan (gpan)
 3. Partner 1 will accept the `ps5` and then share the link it creates with their partner. You can only share it with one partner so you will not be able to change it after your partner has accepted. 
-4. "This submission is our work alone and complies with the 30538 integrity policy." Add your initials to indicate your agreement: \*\*\R\H\*\* \*\*\_\_\*\*
+4. "This submission is our work alone and complies with the 30538 integrity policy." Add your initials to indicate your agreement: \*\*\R\H\*\* \*\*\G\P\*\*
 5. "I have uploaded the names of anyone else other than my partner and I worked with on the problem set **[here](https://docs.google.com/forms/d/185usrCREQaUbvAXpWhChkjghdGgmAZXA3lPWpXLLsts/edit)**"  (1 point)
 6. Late coins used this pset: \*\*\_\_\*\* Late coins left after submission: \*\*\_\_\*\*
 7. Knit your `ps5.qmd` to an PDF file to make `ps5.pdf`, 
@@ -44,6 +44,9 @@ output:
 import pandas as pd
 import altair as alt
 import time
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
 
 import warnings 
 warnings.filterwarnings('ignore')
@@ -117,8 +120,15 @@ print(df.head())
 ### 2. Crawling (PARTNER 1)
 
 ```{python}
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import time
 
-url = 'https://oig.hhs.gov/fraud/enforcement/'
+base_url = 'https://oig.hhs.gov'
+
+url = f'{base_url}/fraud/enforcement/'
+
 
 response = requests.get(url)
 soup = BeautifulSoup(response.text, 'html.parser')
@@ -130,12 +140,10 @@ links = []
 agencies = []
 
 for card in soup.find_all('h2', class_='usa-card__heading'):
-
     title_tag = card.find('a')
     if title_tag:
         title = title_tag.get_text(strip=True)
-        link = url + title_tag['href']  
-
+        link = base_url + title_tag['href']  
         titles.append(title)
         links.append(link)
     else:
@@ -161,11 +169,11 @@ for card in soup.find_all('h2', class_='usa-card__heading'):
         action_soup = BeautifulSoup(action_response.text, 'html.parser')
         
         agency = None
-        for p_tag in action_soup.find_all('p'):
-            text = p_tag.get_text(strip=True)
-            if "U.S. Attorney’s Office" in text or "District" in text or "Office" in text:
-                agency = text
-                break  
+        agency_list = action_soup.find('ul', class_='usa-list usa-list--unstyled margin-y-2')
+        if agency_list:
+            li_tags = agency_list.find_all('li')
+            if len(li_tags) > 1:
+                agency = li_tags[1].get_text(strip=True)
         
         agencies.append(agency)
         
@@ -183,24 +191,298 @@ data = {
 df = pd.DataFrame(data)
 
 print(df.head())
+
 ```
+
 ## Step 2: Making the scraper dynamic
 
 ### 1. Turning the scraper into a function 
 
 * a. Pseudo-Code (PARTNER 2)
+1. **Function Definition and Input Validation**: Define the `scrape_enforcement_actions` function and validate if `start_year` is >= 2013.
 
+2. **Initialization: Set the base URL and initialize empty lists to store data.** Start `page` at 1 and set `max_pages` to 482.
+
+3. **Loop Through Pages**: Use a `while` loop to iterate through pages until `page` exceeds `max_pages`.
+   - Build the URL and send a request.
+   - Check if the response status code is 200; otherwise, stop.
+   - Parse HTML and check for data on the page; exit if none found.
+
+4. **Data Extraction**: Iterate over each card to extract the title, date, category, and link.
+   - Convert the date to `datetime`. Skip if it doesn't meet `start_year` and `start_month`.
+   - Scrape detailed pages for agency information.
+
+5. **Store and Print**: Append data to main lists and create/print a DataFrame for the current page.
+
+6. **Pause**: Use `time.sleep(1)` after each page to avoid rapid requests.
+
+7. **Output and Save**: Combine data into `df`, sort by `Date`, save as CSV, and return `df`.
+
+8. **Analysis**: Convert `Date` column, sort, and print the total number of records and details of the earliest entry.
 
 * b. Create Dynamic Scraper (PARTNER 2)
 
 ```{python}
 
+def scrape_enforcement_actions(start_year, start_month):
+    if start_year < 2013:
+        print("Please note: Only data from 2013 and later can be crawled.")
+        return
+
+    base_url = 'https://oig.hhs.gov'
+    all_titles = []
+    all_dates = []
+    all_categories = []
+    all_links = []
+    all_agencies = []
+    
+    page = 1
+    max_pages = 482
+    
+    while page <= max_pages:
+        url = f'{base_url}/fraud/enforcement/?page={page}'
+        response = requests.get(url)
+        if response.status_code != 200:
+            print(f"Data not available on page {page}, status code:{response.status_code}")
+            break
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        cards = soup.find_all('h2', class_='usa-card__heading')
+        if not cards:
+            print(f"Data not found on page {page}.")
+            break
+        
+        page_titles = []
+        page_dates = []
+        page_categories = []
+        page_links = []
+        page_agencies = []
+        
+        for card in cards:
+            title_tag = card.find('a')
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                link = base_url + title_tag['href']
+            else:
+                title = None
+                link = None
+            
+            date_tag = card.find_next('span', class_='text-base-dark padding-right-105')
+            if date_tag:
+                date = date_tag.get_text(strip=True)
+                date_obj = datetime.strptime(date, '%B %d, %Y')
+
+                if date_obj.year < start_year or (date_obj.year == start_year and date_obj.month < start_month):
+                    continue 
+            else:
+                date = None
+            
+            category_tag = card.find_next('ul', class_='display-inline add-list-reset')
+            if category_tag:
+                category = category_tag.find('li').get_text(strip=True)
+            else:
+                category = None
+            
+            agency = None
+            if link:
+                action_response = requests.get(link)
+                action_soup = BeautifulSoup(action_response.text, 'html.parser')
+                agency_list = action_soup.find('ul', class_='usa-list usa-list--unstyled margin-y-2')
+                if agency_list:
+                    li_tags = agency_list.find_all('li')
+                    if len(li_tags) > 1:
+                        agency = li_tags[1].get_text(strip=True)
+            
+            page_titles.append(title)
+            page_dates.append(date)
+            page_categories.append(category)
+            page_links.append(link)
+            page_agencies.append(agency)
+
+        all_titles.extend(page_titles)
+        all_dates.extend(page_dates)
+        all_categories.extend(page_categories)
+        all_links.extend(page_links)
+        all_agencies.extend(page_agencies)
+
+        page_data = {
+            'Title': page_titles,
+            'Date': page_dates,
+            'Category': page_categories,
+            'Link': page_links,
+            'Agency': page_agencies
+        }
+        page_df = pd.DataFrame(page_data)
+        print(f"Page {page} :")
+        print(page_df.head())  
+
+        time.sleep(1)
+        
+        page += 1
+
+    data = {
+        'Title': all_titles,
+        'Date': all_dates,
+        'Category': all_categories,
+        'Link': all_links,
+        'Agency': all_agencies
+    }
+    df = pd.DataFrame(data)
+    filename = f'enforcement_actions_{start_year}_{start_month}.csv'
+    df.to_csv(filename, index=False)
+    
+    print(f"All data has been saved to {filename}")
+    return df
+
+df_2023 = scrape_enforcement_actions(2023, 1)
+```
+
+```{python}
+df_2023['Date'] = pd.to_datetime(df_2023['Date'], format='%B %d, %Y', errors='coerce')
+df_2023 = df_2023.sort_values(by='Date').dropna(subset=['Date'])
+
+total_actions = len(df_2023)
+print(f"Total number of enforcement actions scraped: {total_actions}")
+
+if total_actions > 0:
+    earliest_action = df_2023.iloc[0]
+    print("Details of the earliest enforcement action:")
+    print(earliest_action)
+else:
+    print("No enforcement actions found that meet the criteria.")
 ```
 
 * c. Test Partner's Code (PARTNER 1)
 
 ```{python}
+def scrape_enforcement_actions(start_year, start_month):
+    if start_year < 2013:
+        print("Please note: Only data from 2013 and later can be crawled.")
+        return
 
+    base_url = 'https://oig.hhs.gov'
+    all_titles = []
+    all_dates = []
+    all_categories = []
+    all_links = []
+    all_agencies = []
+    
+    page = 1
+    max_pages = 482
+    
+    while page <= max_pages:
+        url = f'{base_url}/fraud/enforcement/?page={page}'
+        response = requests.get(url)
+        if response.status_code != 200:
+            print(f"Data not available on page {page}, status code:{response.status_code}")
+            break
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        cards = soup.find_all('h2', class_='usa-card__heading')
+        if not cards:
+            print(f"Data not found on page {page}.")
+            break
+        
+        page_titles = []
+        page_dates = []
+        page_categories = []
+        page_links = []
+        page_agencies = []
+        
+        for card in cards:
+            title_tag = card.find('a')
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+                link = base_url + title_tag['href']
+            else:
+                title = None
+                link = None
+            
+            date_tag = card.find_next('span', class_='text-base-dark padding-right-105')
+            if date_tag:
+                date = date_tag.get_text(strip=True)
+                date_obj = datetime.strptime(date, '%B %d, %Y')
+
+                if date_obj.year < start_year or (date_obj.year == start_year and date_obj.month < start_month):
+                    continue 
+            else:
+                date = None
+            
+            category_tag = card.find_next('ul', class_='display-inline add-list-reset')
+            if category_tag:
+                category = category_tag.find('li').get_text(strip=True)
+            else:
+                category = None
+            
+            agency = None
+            if link:
+                action_response = requests.get(link)
+                action_soup = BeautifulSoup(action_response.text, 'html.parser')
+                agency_list = action_soup.find('ul', class_='usa-list usa-list--unstyled margin-y-2')
+                if agency_list:
+                    li_tags = agency_list.find_all('li')
+                    if len(li_tags) > 1:
+                        agency = li_tags[1].get_text(strip=True)
+            
+            page_titles.append(title)
+            page_dates.append(date)
+            page_categories.append(category)
+            page_links.append(link)
+            page_agencies.append(agency)
+
+        all_titles.extend(page_titles)
+        all_dates.extend(page_dates)
+        all_categories.extend(page_categories)
+        all_links.extend(page_links)
+        all_agencies.extend(page_agencies)
+
+        page_data = {
+            'Title': page_titles,
+            'Date': page_dates,
+            'Category': page_categories,
+            'Link': page_links,
+            'Agency': page_agencies
+        }
+        page_df = pd.DataFrame(page_data)
+        print(f"Page {page} :")
+        print(page_df.head())  
+
+        time.sleep(0.1)
+        
+        page += 1
+
+    data = {
+        'Title': all_titles,
+        'Date': all_dates,
+        'Category': all_categories,
+        'Link': all_links,
+        'Agency': all_agencies
+    }
+    df = pd.DataFrame(data)
+    filename = f'enforcement_actions_{start_year}_{start_month}.csv'
+    df.to_csv(filename, index=False)
+    
+    print(f"All data has been saved to {filename}")
+    return df
+
+df_2021 = scrape_enforcement_actions(2021, 1)
+```
+
+```{python}
+df_2021['Date'] = pd.to_datetime(df_2021['Date'], format='%B %d, %Y', errors='coerce')
+df_2021 = df_2021.sort_values(by='Date').dropna(subset=['Date'])
+
+total_actions = len(df_2021)
+print(f"Total number of enforcement actions scraped: {total_actions}")
+
+if total_actions > 0:
+    earliest_action = df_2021.iloc[0]
+    print("Details of the earliest enforcement action:")
+    print(earliest_action)
+else:
+    print("No enforcement actions found that meet the criteria.")
 ```
 
 ## Step 3: Plot data based on scraped data
@@ -208,7 +490,23 @@ print(df.head())
 ### 1. Plot the number of enforcement actions over time (PARTNER 2)
 
 ```{python}
+import altair as alt
 
+df_2021['Date'] = pd.to_datetime(df_2021['Date'], format='%B %d, %Y', errors='coerce')
+
+df_2021['YearMonth'] = df_2021['Date'].dt.to_period('M').dt.to_timestamp()
+
+monthly_counts = df_2021.groupby('YearMonth').size().reset_index(name='Count')
+
+line_chart = alt.Chart(monthly_counts).mark_line().encode(
+    x=alt.X('YearMonth:T', title='Month-Year'),
+    y=alt.Y('Count:Q', title='Number of Enforcement Actions'),
+    tooltip=['YearMonth', 'Count']
+).properties(
+    title='Number of Enforcement Actions Over Time (Aggregated by Month-Year)'
+)
+
+line_chart.display()
 ```
 
 ### 2. Plot the number of enforcement actions categorized: (PARTNER 1)
@@ -216,14 +514,58 @@ print(df.head())
 * based on "Criminal and Civil Actions" vs. "State Enforcement Agencies"
 
 ```{python}
+df_2021['Date'] = pd.to_datetime(df_2021['Date'], format='%B %d, %Y', errors='coerce')
 
+filtered_df = df_2021[df_2021['Category'].isin(['Criminal and Civil Actions', 'State Enforcement Agencies'])]
+
+filtered_df['YearMonth'] = filtered_df['Date'].dt.to_period('M').dt.to_timestamp()
+category_counts = filtered_df.groupby(['YearMonth', 'Category']).size().reset_index(name='Count')
+
+category_chart = alt.Chart(category_counts).mark_line().encode(
+    x=alt.X('YearMonth:T', title='Month-Year'),
+    y=alt.Y('Count:Q', title='Number of Enforcement Actions'),
+    color='Category:N',
+    tooltip=['YearMonth', 'Category', 'Count']
+).properties(
+    title='Number of Enforcement Actions: Criminal and Civil Actions vs. State Enforcement Agencies'
+)
+
+category_chart.display()
 ```
 
 * based on five topics
-
 ```{python}
+def assign_topic(title):
+    if any(keyword in title.lower() for keyword in ['health', 'care']):
+        return 'Health Care Fraud'
+    elif any(keyword in title.lower() for keyword in ['bank', 'financial']):
+        return 'Financial Fraud'
+    elif any(keyword in title.lower() for keyword in ['drug', 'narcotic']):
+        return 'Drug Enforcement'
+    elif any(keyword in title.lower() for keyword in ['bribe', 'corruption']):
+        return 'Bribery/Corruption'
+    else:
+        return 'Other'
+
+df_2021['Topic'] = df_2021['Title'].apply(assign_topic)
+
+filtered_df = df_2021[df_2021['Category'].isin(['Criminal and Civil Actions', 'State Enforcement Agencies'])]
+
+topic_counts = filtered_df.groupby(['YearMonth', 'Topic']).size().reset_index(name='Count')
+
+topic_chart = alt.Chart(topic_counts).mark_line().encode(
+    x=alt.X('YearMonth:T', title='Month-Year'),
+    y=alt.Y('Count:Q', title='Number of Enforcement Actions'),
+    color='Topic:N',
+    tooltip=['YearMonth', 'Topic', 'Count']
+).properties(
+    title='Number of Enforcement Actions by Topic Over Time'
+)
+
+topic_chart.display()
 
 ```
+
 
 ## Step 4: Create maps of enforcement activity
 
